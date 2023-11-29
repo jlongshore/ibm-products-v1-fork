@@ -10,7 +10,6 @@ import React, {
   useEffect,
   useImperativeHandle,
   useRef,
-  // useState,
 } from 'react';
 
 import PropTypes from 'prop-types';
@@ -61,27 +60,31 @@ export let Carousel = React.forwardRef(
   ) => {
     const carouselRef = useRef();
     const scrollRef = useRef();
+
+    const childElementsRef = useRef(
+      Array(React.Children.count(children)).fill(useRef(null))
+    );
+
     const leftFadedEdgeColor = fadedEdgeColor?.left || fadedEdgeColor;
     const rightFadedEdgeColor = fadedEdgeColor?.right || fadedEdgeColor;
 
     // Return the current state of the carousel.
     const getWidths = useCallback(() => {
-      const ref = scrollRef.current;
-      // carousel items (DOM)
-      const items = ref.querySelectorAll(`.${blockClass}__item`);
-      // viewport's width
-      const clientWidth = ref.clientWidth;
-      // scroll position
-      const scrollLeft = parseInt(ref.scrollLeft, 10);
-      // scrollable width
-      const scrollWidth = ref.scrollWidth;
+      const alltemWidths = childElementsRef.current.reduce((acc, curVal) => {
+        const curValRect = curVal.getBoundingClientRect();
+        return acc + curValRect.width;
+      }, 0);
 
-      let itemWidths = [];
-      items.forEach((item) => itemWidths.push(item.clientWidth));
+      // viewport's width
+      const clientWidth = scrollRef.current.clientWidth;
+      // scroll position
+      const scrollLeft = parseInt(scrollRef.current.scrollLeft, 10);
+      // scrollable width
+      const scrollWidth = scrollRef.current.scrollWidth;
 
       return {
         clientWidth,
-        itemWidths,
+        itemWidths: alltemWidths,
         scrollLeft,
         scrollWidth,
       };
@@ -107,78 +110,51 @@ export let Carousel = React.forwardRef(
       onScroll(scrollPercent);
     }, [getWidths, onChangeIsScrollable, onScroll]);
 
+    const getElementInView = useCallback((containerRect, elementRect) => {
+      const leftIsRightOfContainerLeft = elementRect.left >= containerRect.left;
+      const rightIsLeftOfContainerRight =
+        elementRect.right <= containerRect.right;
+      return leftIsRightOfContainerLeft && rightIsLeftOfContainerRight;
+    }, []);
+
+    const getElementsInView = useCallback(() => {
+      const containerRect = scrollRef.current.getBoundingClientRect();
+      const inViewElements = childElementsRef.current.filter((el) =>
+        getElementInView(containerRect, el.getBoundingClientRect())
+      );
+      return inViewElements;
+    }, [getElementInView]);
+
     const handleNext = useCallback(() => {
-      const { clientWidth, itemWidths, scrollLeft } = getWidths();
-      let newScrollLeft = 0;
-      const maxScrollLeft = scrollLeft + clientWidth;
-
-      // Cycle through all items, from the beginning.
-      for (let index = 0; index < itemWidths.length - 1; index++) {
-        const itemWidth = itemWidths[index];
-        if (newScrollLeft + itemWidth < maxScrollLeft) {
-          newScrollLeft += itemWidth;
-        } else {
-          break;
-        }
-      }
-
-      console.log(
-        'clientWidth, itemWidths, scrollLeft,',
-        clientWidth,
-        itemWidths,
-        scrollLeft
+      const containerRect = scrollRef.current.getBoundingClientRect();
+      const elRectsInView = getElementsInView().map((el) =>
+        el.getBoundingClientRect()
+      );
+      const visibleWidth = elRectsInView.reduce(
+        (acc, curVal) => acc + curVal.width,
+        0
       );
 
-      scrollRef.current.scrollLeft = parseInt(newScrollLeft, 10);
-
-      handleScroll();
-    }, [getWidths, handleScroll]);
+      const scrollValue = visibleWidth > 0 ? visibleWidth : containerRect.width;
+      scrollRef.current.scrollLeft += scrollValue;
+    }, [getElementsInView]);
 
     const handlePrev = useCallback(() => {
-      const { clientWidth, itemWidths, scrollLeft, scrollWidth } = getWidths();
-      let newScrollLeft = scrollWidth;
-      let maxScrollLeft;
+      const containerRect = scrollRef.current.getBoundingClientRect();
+      const elRectsInView = getElementsInView().map((el) =>
+        el.getBoundingClientRect()
+      );
+      const visibleWidth = elRectsInView.reduce(
+        (acc, curVal) => acc + curVal.width,
+        0
+      );
 
-      // Exception; if already scrolled all the way to the left,
-      // then skip this action.
-      if (scrollLeft === 0) {
-        return;
-      }
-
-      if (scrollLeft + clientWidth < scrollWidth) {
-        // Default: the carousel's scroll is not all the way to the right.
-        // The default max scroll is (the current scroll - the viewport's width)
-        maxScrollLeft = scrollLeft - clientWidth;
-      } else {
-        // Exception: if scrolled all the way to the right, then the items are right-aligned with the component.
-        // Set the initial target scroll to (the max scrollable width - the viewport's width)...
-        maxScrollLeft = scrollWidth - clientWidth;
-        // ...and starting from the last item, find the maximum scroll that can be left-aligned.
-        // Cycle through all items, from the end.
-        for (let index = itemWidths.length - 1; index >= 0; index--) {
-          if (scrollLeft - clientWidth + itemWidths[index] < maxScrollLeft) {
-            maxScrollLeft -= itemWidths[index];
-          } else {
-            break;
-          }
-        }
-      }
-
-      // Calculate exact scroll.
-      // Cycle through all items, from the end.
-      for (let index = itemWidths.length - 1; index >= 0; index--) {
-        const itemWidth = itemWidths[index];
-        if (newScrollLeft - itemWidth >= maxScrollLeft) {
-          newScrollLeft -= itemWidth;
-        } else {
-          break;
-        }
-      }
-
-      scrollRef.current.scrollLeft = parseInt(newScrollLeft, 10);
-
-      handleScroll();
-    }, [getWidths, handleScroll]);
+      const scrollValue =
+        visibleWidth > 0
+          ? visibleWidth - elRectsInView[0].left
+          : containerRect.width + containerRect.left;
+      scrollRef.current.scrollLeft -= scrollValue;
+    }, [getElementsInView]);
 
     const handleReset = useCallback(() => {
       scrollRef.current.scrollLeft = 0;
@@ -291,8 +267,15 @@ export let Carousel = React.forwardRef(
       >
         <div className={cx(`${blockClass}__elements-container`)}>
           <div className={`${blockClass}__elements`} ref={scrollRef}>
-            {React.Children.map(children, (child) => {
-              return <CarouselItem>{child}</CarouselItem>;
+            {React.Children.map(children, (child, idx) => {
+              return (
+                <CarouselItem
+                  key={idx}
+                  ref={(ci) => (childElementsRef.current[idx] = ci)}
+                >
+                  {child}
+                </CarouselItem>
+              );
             })}
           </div>
 

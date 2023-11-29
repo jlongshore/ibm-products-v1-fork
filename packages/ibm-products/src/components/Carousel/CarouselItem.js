@@ -20,17 +20,22 @@ const componentName = 'CarouselItem';
  *
  * This component is not intended for general use.
  */
-export let CarouselItem = ({ children, className, ...rest }) => {
-  return (
-    <div
-      {...rest}
-      className={cx(blockClass, className)}
-      {...getDevtoolsProps(componentName)}
-    >
-      {children}
-    </div>
-  );
-};
+export let CarouselItem = React.forwardRef(
+  ({ children, className, ...rest }, ref) => {
+    return (
+      <div
+        {...rest}
+        className={cx(blockClass, className)}
+        {...getDevtoolsProps(componentName)}
+        ref={ref}
+      >
+        {children}
+      </div>
+    );
+  }
+);
+
+CarouselItem.displayName = componentName;
 
 // The types and DocGen commentary for the component props,
 // in alphabetical order (for consistency).
