@@ -61,6 +61,9 @@ export let Carousel = React.forwardRef(
     const carouselRef = useRef();
     const scrollRef = useRef();
 
+    /**
+     * React ref of an array of refs - used for reference to this component's children DOM elements
+     */
     const childElementsRef = useRef(
       Array(React.Children.count(children)).fill(useRef(null))
     );
@@ -70,11 +73,6 @@ export let Carousel = React.forwardRef(
 
     // Return the current state of the carousel.
     const getWidths = useCallback(() => {
-      const alltemWidths = childElementsRef.current.reduce((acc, curVal) => {
-        const curValRect = curVal.getBoundingClientRect();
-        return acc + curValRect.width;
-      }, 0);
-
       // viewport's width
       const clientWidth = scrollRef.current.clientWidth;
       // scroll position
@@ -84,7 +82,6 @@ export let Carousel = React.forwardRef(
 
       return {
         clientWidth,
-        itemWidths: alltemWidths,
         scrollLeft,
         scrollWidth,
       };
@@ -110,13 +107,21 @@ export let Carousel = React.forwardRef(
       onScroll(scrollPercent);
     }, [getWidths, onChangeIsScrollable, onScroll]);
 
+    /**
+     * Function to check if an individual child element is visible in the container
+     */
     const getElementInView = useCallback((containerRect, elementRect) => {
+      // Is the element's left greater than or equal to the containers left
       const leftIsRightOfContainerLeft = elementRect.left >= containerRect.left;
+      // Is the element's right less than or equal to the containers right
       const rightIsLeftOfContainerRight =
         elementRect.right <= containerRect.right;
       return leftIsRightOfContainerLeft && rightIsLeftOfContainerRight;
     }, []);
 
+    /**
+     * Function to get all elements that are visible in the container.
+     */
     const getElementsInView = useCallback(() => {
       const containerRect = scrollRef.current.getBoundingClientRect();
       const inViewElements = childElementsRef.current.filter((el) =>
@@ -125,36 +130,52 @@ export let Carousel = React.forwardRef(
       return inViewElements;
     }, [getElementInView]);
 
-    const handleNext = useCallback(() => {
+    /**
+     * Function to get container and children's rect data
+     *
+     * Returns an object with the following properties:
+     * @property {DOMRect} containerRect - The rect of the container
+     * @property {DOMRect[]} elRectsInView - The rects of the visible children.
+     * @property {number} visibleWidth - The width of the visible children.
+     */
+    const getContainerAndChildRectData = useCallback(() => {
+      // Get the rect of the container
       const containerRect = scrollRef.current.getBoundingClientRect();
+      // Get all child elements that are in view of the container, and return their bounding rects.
       const elRectsInView = getElementsInView().map((el) =>
         el.getBoundingClientRect()
       );
+
+      // What is the overall width of the visible elements in the container
+      // Note: may end up being 0 if the container's width is less than the child's width
       const visibleWidth = elRectsInView.reduce(
         (acc, curVal) => acc + curVal.width,
         0
       );
-
-      const scrollValue = visibleWidth > 0 ? visibleWidth : containerRect.width;
-      scrollRef.current.scrollLeft += scrollValue;
+      return { containerRect, elRectsInView, visibleWidth };
     }, [getElementsInView]);
 
-    const handlePrev = useCallback(() => {
-      const containerRect = scrollRef.current.getBoundingClientRect();
-      const elRectsInView = getElementsInView().map((el) =>
-        el.getBoundingClientRect()
-      );
-      const visibleWidth = elRectsInView.reduce(
-        (acc, curVal) => acc + curVal.width,
-        0
-      );
+    const handleNext = useCallback(() => {
+      const { containerRect, visibleWidth } = getContainerAndChildRectData();
+      // Set the scrollValue to the visibleWidth, but if the visibleWidth value is 0, set it to the container's width
+      const scrollValue = visibleWidth > 0 ? visibleWidth : containerRect.width;
+      // Increment the scrollLeft of the container
+      scrollRef.current.scrollLeft += scrollValue;
+    }, [getContainerAndChildRectData]);
 
+    const handlePrev = useCallback(() => {
+      const { containerRect, elRectsInView, visibleWidth } =
+        getContainerAndChildRectData();
+      // Set the scrollValue to the visibleWidth minus the components first child's left value
+      // but if the visibleWidth value is 0, set it to the container's width plus the container's left value
       const scrollValue =
         visibleWidth > 0
           ? visibleWidth - elRectsInView[0].left
           : containerRect.width + containerRect.left;
+
+      // Decrement the scrollLeft of the container
       scrollRef.current.scrollLeft -= scrollValue;
-    }, [getElementsInView]);
+    }, [getContainerAndChildRectData]);
 
     const handleReset = useCallback(() => {
       scrollRef.current.scrollLeft = 0;
@@ -178,7 +199,6 @@ export let Carousel = React.forwardRef(
     useEffect(() => {
       const handleWindowResize = () => {
         scrollRef.current.scrollLeft = 0;
-        handleScroll();
       };
 
       window.addEventListener('resize', handleWindowResize);
